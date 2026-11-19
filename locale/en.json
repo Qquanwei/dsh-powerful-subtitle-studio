@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Powerful subtitle studio",
+    "description": "Turn videos into bilingual subtitles with the DSH agent: transcribe speech or translate existing subtitles, keep character and term names consistent across every video through a shared glossary, refine translations with frame-level vision checks, and render sidecar SRT, soft-subbed MKV, or hard-burned MP4. Requires ffmpeg/ffprobe and OpenAI-compatible ASR/vision endpoints; translation defaults to DeepSeek."
+  }
+}
