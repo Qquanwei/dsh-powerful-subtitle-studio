@@ -1,33 +1,11 @@
 - insert:
     - id: powerful-subtitle-studio
-      name: '@local/powerful-subtitle-studio'
+      name: powerful-subtitle-studio
       config:
         workdir: ~/.powerful-subtitle-studio
-        ffmpegPath: ffmpeg
-        ffprobePath: ffprobe
-        translate:
-          provider: dsh
-          baseUrl: https://api.deepseek.com/v1
-          apiKey: ${DEEPSEEK_API_KEY}
-          model: deepseek-chat
-          sourceLang: ja
-          targetLang: zh-CN
-          temperature: 0.2
-          maxTokens: 4000
-          dshProvider: ''
-          dshModel: ''
         asr:
-          baseUrl: https://open.bigmodel.cn/api/paas/v4
-          apiKey: ${ZHIPU_API_KEY}
-          model: glm-asr-2512
-          language: ja
-          prompt: ''
-        vision:
-          baseUrl: https://open.bigmodel.cn/api/paas/v4
-          apiKey: ${ZHIPU_API_KEY}
-          model: glm-4v-plus
-          maxTokens: 1000
-          maxFramesPerVideo: 12
+          baseUrl: https://dashscope.aliyuncs.com
+          apiKey: ${DASHSCOPE_API_KEY}
         render:
           defaultMode: srt
           burnStyle: "FontName=Noto Sans CJK SC,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Shadow=0,MarginV=20"

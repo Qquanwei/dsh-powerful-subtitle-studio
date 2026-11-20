@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Powerful subtitle studio",
-    "description": "Turn videos into bilingual subtitles with the DSH agent: transcribe speech or translate existing subtitles, keep character and term names consistent across every video through a shared glossary, refine translations with frame-level vision checks, and render sidecar SRT, soft-subbed MKV, or hard-burned MP4. Requires ffmpeg/ffprobe and OpenAI-compatible ASR/vision endpoints; translation defaults to DeepSeek."
+    "title": "Subtitle Studio",
+    "description": "Turn one video at a time into subtitles. Bailian paraformer-v2 transcribes, the current conversation translates, and the result is an SRT, a soft subtitle, or a burned-in video."
   }
 }

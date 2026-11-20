@@ -1,9 +1,10 @@
 {
-  "name": "@local/powerful-subtitle-studio",
+  "name": "powerful-subtitle-studio",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "AI subtitle studio for DeepSeek Harness: transcribe or translate video subtitles with cross-video terminology consistency, vision-assisted correction, and subtitle rendering (sidecar SRT / soft-subbed MKV / hard-burned MP4).",
+  "license": "MIT",
+  "description": "DeepSeek Harness plugin that turns a video into subtitles: Bailian paraformer-v2 transcription, translation by the current conversation, and SRT, soft-sub, or burned-in output.",
+  "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -17,7 +18,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },

@@ -1,20 +1,68 @@
 /** powerful-subtitle-studio — Host entry: tools, commands, and HTTP routes for client-direct calls. */
-import { createStudio, buildToolDefinitions, preflight, preprocessForStudio, listProjects, upsertProject, loadUserConfig, saveUserConfig, maskKey } from './lib/studio.js'
+import { createReadStream } from 'node:fs'
+import { Readable } from 'node:stream'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { createStudio, buildToolDefinitions, preflight, preprocessForStudio, listProjects, upsertProject, deleteProject, projectVideoFile, projectSubtitles, loadUserConfig, saveUserConfig, maskKey, binaryStatus, installBinaries } from './lib/studio.js'
+import { ASR_MODEL } from './lib/ai.js'
 import { expandEnv, expandHome } from './lib/util.js'
 
-export const inject = ['tools', 'llm', 'commands', 'connection']
-
-const jsonRes = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
-
-async function listDshModels(ctx) {
-  const providers = []
-  for (const p of ctx.llm.listProviders()) {
-    let models = []
-    try { models = (await ctx.llm.listModels(p.id)) ?? [] } catch { models = [] }
-    providers.push({ provider: p.id, name: p.name, models: models.map((m) => ({ id: m.id, name: m.name ?? m.id, vision: (m.inputModalities ?? []).includes('image') })) })
-  }
-  return { providers }
+const VIDEO_TYPES = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
 }
+
+async function streamVideo(request, file) {
+  const stat = await fs.stat(file)
+  const size = stat.size
+  const headers = {
+    'content-type': VIDEO_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
+    'accept-ranges': 'bytes',
+    'cache-control': 'private, max-age=3600',
+  }
+  if (request.method === 'HEAD') {
+    return new Response(null, { status: 200, headers: { ...headers, 'content-length': String(size) } })
+  }
+  const range = request.headers.get('range')
+  if (!range) {
+    return new Response(Readable.toWeb(createReadStream(file)), {
+      status: 200,
+      headers: { ...headers, 'content-length': String(size) },
+    })
+  }
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim())
+  if (!match) return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } })
+  let start
+  let end
+  if (match[1] === '') {
+    const suffix = Number(match[2])
+    start = Number.isFinite(suffix) ? Math.max(0, size - suffix) : size
+    end = size - 1
+  } else {
+    start = Number(match[1])
+    end = match[2] === '' ? size - 1 : Number(match[2])
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= size || start > end) {
+    return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } })
+  }
+  end = Math.min(end, size - 1)
+  return new Response(Readable.toWeb(createReadStream(file, { start, end })), {
+    status: 206,
+    headers: {
+      ...headers,
+      'content-range': `bytes ${start}-${end}/${size}`,
+      'content-length': String(end - start + 1),
+    },
+  })
+}
+
+export const name = 'powerful-subtitle-studio'
+
+export const inject = ['tools', 'llm', 'connection', 'attachments']
 
 function applyConfig(cfg, opts) {
   const workdir = expandHome(expandEnv(cfg.workdir))
@@ -22,74 +70,95 @@ function applyConfig(cfg, opts) {
   const next = { ...current }
   const put = (s, o) => { next[s] = { ...(next[s] ?? {}), ...o } }
   if (opts.asrApiKey !== undefined) put('asr', { apiKey: opts.asrApiKey })
-  if (opts.visionApiKey !== undefined) put('vision', { apiKey: opts.visionApiKey })
-  if (opts.asrModel !== undefined) put('asr', { model: opts.asrModel })
-  if (opts.visionModel !== undefined) put('vision', { dshModel: opts.visionModel })
   if (opts.asrBaseUrl !== undefined) put('asr', { baseUrl: opts.asrBaseUrl })
-  if (opts.visionBaseUrl !== undefined) put('vision', { baseUrl: opts.visionBaseUrl })
-  if (opts.visionProvider !== undefined) put('vision', { provider: 'dsh', dshProvider: opts.visionProvider })
   saveUserConfig(workdir, next)
   Object.assign(cfg.asr, next.asr ?? {})
-  Object.assign(cfg.vision, next.vision ?? {})
-  return { saved: true, asr: { ...cfg.asr, apiKey: maskKey(cfg.asr.apiKey) }, vision: { ...cfg.vision, apiKey: maskKey(cfg.vision.apiKey) } }
+  cfg.asr.model = ASR_MODEL
+  return { saved: true, asr: { ...cfg.asr, apiKey: maskKey(cfg.asr.apiKey) } }
 }
 
 export function apply(ctx, config) {
-  const { studio, cfg, ensureProject, recordRun } = createStudio(ctx, config ?? {})
-  const defs = buildToolDefinitions({ studio, cfg, ensureProject, recordRun })
+  const { studio, cfg } = createStudio(ctx, config ?? {})
+  const defs = buildToolDefinitions({ studio, cfg })
   const disposers = []
   for (const def of defs) {
     disposers.push(ctx.tools.register(def))
   }
 
-  // HTTP 接口（传统接口调用，面板直连，不经 agent）
-  try {
-    ctx.effect(() => {
-      const d1 = ctx.connection.fetch.register({ path: '/api/subtitle/models', methods: ['GET'], fetch: async () => jsonRes(await listDshModels(ctx)) })
-      const d2 = ctx.connection.fetch.register({ path: '/api/subtitle/check', methods: ['GET'], fetch: async () => jsonRes(await preflight(studio)) })
-      const d3 = ctx.connection.fetch.register({ path: '/api/subtitle/config', methods: ['POST'], requestBody: 'buffered', fetch: async (request) => {
-        let opts = {}
-        try { opts = JSON.parse((await request.text()) || '{}') } catch { /* ignore */ }
-        return jsonRes(applyConfig(cfg, opts))
-      } })
-      const d4 = ctx.connection.fetch.register({ path: '/api/subtitle/preprocess', methods: ['POST'], requestBody: 'buffered', fetch: async (request) => {
-        let opts = {}
-        try { opts = JSON.parse((await request.text()) || '{}') } catch { /* ignore */ }
-        const paths = Array.isArray(opts.paths) ? opts.paths : []
-        return jsonRes(await preprocessForStudio(studio, cfg, paths))
-      } })
-      const d5 = ctx.connection.fetch.register({ path: '/api/subtitle/projects', methods: ['GET'], fetch: async () => jsonRes(await listProjects(cfg)) })
-      const d6 = ctx.connection.fetch.register({ path: '/api/subtitle/project', methods: ['POST'], requestBody: 'buffered', fetch: async (request) => {
-        let opts = {}
-        try { opts = JSON.parse((await request.text()) || '{}') } catch { /* ignore */ }
-        return jsonRes(await upsertProject(cfg, opts))
-      } })
-      return () => { d1(); d2(); d3(); d4(); d5(); d6() }
-    }, 'subtitle: http routes')
-  } catch { /* HTTP 路由注册失败不影响工具 */ }
-
-  // 命令（agent 兜底）
-  try {
-    ctx.commands.register({
-      name: 'subtitle-list-models',
-      description: 'List DSH models with vision capability',
-      handler: async () => ({ kind: 'success', text: JSON.stringify(await listDshModels(ctx)) }),
-    })
-    ctx.commands.register({
-      name: 'subtitle-check',
-      description: 'Run subtitle config preflight',
-      handler: async () => ({ kind: 'success', text: JSON.stringify(await preflight(studio)) }),
-    })
-    ctx.commands.register({
-      name: 'subtitle-save-config',
-      description: 'Save subtitle config from JSON args',
-      handler: async (inv) => {
-        let opts = {}
-        try { opts = JSON.parse((inv.rawInput || '').trim() || '{}') } catch { /* ignore */ }
-        return { kind: 'success', text: JSON.stringify(applyConfig(cfg, opts)) }
-      },
-    })
-  } catch { /* 命令注册失败不影响工具 */ }
+  // /api 上只能有一个拦截器，而且已经被网关占用。再 intercept 会把
+  // settings/describe 顶掉，欢迎页就会报 Web request failed。
+  // 精确路径走 fetch.register，由已经在跑的 /api 先匹配这些地址。
+  const rpcOk = (value) => ({ ok: true, value })
+  const rpcFail = (message) => ({ ok: false, error: { code: 'bad-request', message: String(message), details: { issues: [] } } })
+  const dispatch = async (endpoint, payload) => {
+    const name = String(endpoint || '').replace(/^subtitle\//, '')
+    const body = payload && typeof payload === 'object' ? payload : {}
+    try {
+      if (name === 'projects/list') return rpcOk(await listProjects(cfg))
+      if (name === 'projects/save') return rpcOk(await upsertProject(cfg, body))
+      if (name === 'projects/delete') return rpcOk(await deleteProject(cfg, body))
+      if (name === 'config/save') return rpcOk(applyConfig(cfg, body))
+      if (name === 'preprocess') return rpcOk(await preprocessForStudio(studio, cfg, Array.isArray(body.paths) ? body.paths : []))
+      if (name === 'check') return rpcOk(await preflight(studio))
+      if (name === 'binaries/status') return rpcOk(await binaryStatus(cfg))
+      if (name === 'binaries/download') return rpcOk(await installBinaries(cfg))
+      if (name === 'subtitles') return rpcOk(await projectSubtitles(cfg, body))
+      return rpcFail(`unknown endpoint ${name}`)
+    } catch (err) {
+      return rpcFail(err?.message || err)
+    }
+  }
+  ctx.effect(() => {
+    const stops = []
+    const register = ctx.connection?.fetch?.register
+    if (typeof register === 'function') {
+      for (const name of ['projects/list', 'projects/save', 'projects/delete', 'config/save', 'preprocess', 'check', 'binaries/status', 'binaries/download', 'subtitles']) {
+        try {
+          stops.push(register({
+            path: `/api/subtitle/${name}`,
+            methods: ['POST'],
+            requestBody: 'buffered',
+            async fetch(request) {
+              let rpcId = 'invalid-request'
+              let payload = {}
+              try {
+                const message = await request.json()
+                if (message && typeof message.rpcId === 'string') rpcId = message.rpcId
+                payload = message?.payload ?? {}
+              } catch {
+                return Response.json({
+                  type: 'server-response',
+                  rpcId,
+                  result: rpcFail('body is not JSON'),
+                })
+              }
+              return Response.json({ type: 'server-response', rpcId, result: await dispatch(name, payload) })
+            },
+          }))
+        } catch (err) {
+          console.error(`[powerful-subtitle-studio] route /api/subtitle/${name} failed:`, err)
+        }
+      }
+      try {
+        stops.push(register({
+          path: '/api/subtitle/media',
+          methods: ['GET', 'HEAD'],
+          requestBody: 'buffered',
+          async fetch(request) {
+            try {
+              const file = await projectVideoFile(cfg, new URL(request.url).searchParams.get('path'))
+              return await streamVideo(request, file)
+            } catch {
+              return new Response('not found', { status: 404 })
+            }
+          },
+        }))
+      } catch (err) {
+        console.error('[powerful-subtitle-studio] route /api/subtitle/media failed:', err)
+      }
+    }
+    return () => { for (const stop of stops) void stop() }
+  }, 'subtitle: rpc')
 
   return () => { for (const d of disposers) d() }
 }
