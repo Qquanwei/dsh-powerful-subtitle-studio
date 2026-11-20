@@ -2,10 +2,11 @@ import assert from 'node:assert'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { parseSubtitle, serializeSrt, msToSrt } from '../lib/srt.js'
+import { parseSubtitle, serializeSrt, msToSrt, composeCues } from '../lib/srt.js'
 import { cuesFromWords } from '../lib/ai.js'
-import { createStudio, buildToolDefinitions, upsertProject, listProjects, deleteProject, projectSubtitles, projectVideoFile } from '../lib/studio.js'
+import { createStudio, buildToolDefinitions, upsertProject, listProjects, deleteProject, projectSubtitles, projectVideoFile, composeSubtitle } from '../lib/studio.js'
 import { binaryAsset, NPM_REGISTRY, BINARY_MIRROR } from '../lib/binaries.js'
+import { renderOutputPath, subtitleLang, isOutsideDirectory } from '../lib/render.js'
 
 // --- SRT / VTT parsing & serialization ---
 const srt = '1\n00:00:01,000 --> 00:00:03,500\nHello world\n\n2\n00:00:04,000 --> 00:00:05,000\nSecond line\n'
@@ -44,12 +45,35 @@ assert.ok(splitRun.length > 1)
 assert.ok(splitRun.every((c) => c.end - c.start <= 7000))
 assert.ok(splitRun.every((c) => c.text.length <= 40))
 
+const asr = [
+  { start: 1000, end: 2500, text: 'こんばんは' },
+  { start: 3000, end: 4200, text: '店長' },
+]
+const paired = composeCues(asr, ['晚上好', '老板娘'])
+assert.deepStrictEqual(paired.map((c) => [c.start, c.end, c.text]), [[1000, 2500, '晚上好'], [3000, 4200, '老板娘']])
+assert.strictEqual(composeCues(asr, ['晚上好', '老板娘'], { bilingual: true })[0].text, 'こんばんは\n晚上好')
+assert.throws(() => composeCues(asr, ['只有一条']), /条数必须一致/)
+assert.throws(() => composeCues(asr, ['晚上好', '  ']), /第 1 条译文为空/)
+
+const composeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pss-compose-'))
+const composeVideo = path.join(composeDir, 'ep.mp4')
+await fs.writeFile(composeVideo, 'video')
+const composeCfg = { workdir: path.join(composeDir, 'work') }
+const first = await composeSubtitle(composeCfg, { project: 'show', video: composeVideo, cues: asr, texts: ['晚上好', '老板娘'] })
+assert.ok(first.srt.endsWith('draft.srt'))
+assert.strictEqual(parseSubtitle(await fs.readFile(first.srt, 'utf8'))[1].end, 4200)
+const patched = await composeSubtitle(composeCfg, { project: 'show', video: composeVideo, lines: { 1: '老板' } })
+assert.strictEqual(parseSubtitle(await fs.readFile(patched.srt, 'utf8'))[1].text, '老板')
+assert.strictEqual(parseSubtitle(await fs.readFile(patched.srt, 'utf8'))[1].start, 3000)
+await assert.rejects(() => composeSubtitle(composeCfg, { project: 'show', video: composeVideo, lines: { 9: '越界' } }), /超出/)
+await fs.rm(composeDir, { recursive: true, force: true })
+
 // --- tool definitions shape ---
 const { studio, cfg } = createStudio({}, {})
 const defs = buildToolDefinitions({ studio, cfg })
-assert.strictEqual(defs.length, 3)
+assert.strictEqual(defs.length, 4)
 const names = defs.map((d) => d.name)
-for (const n of ['subtitle_transcribe', 'subtitle_frames', 'subtitle_render']) {
+for (const n of ['subtitle_transcribe', 'subtitle_frames', 'subtitle_compose', 'subtitle_render']) {
   assert.ok(names.includes(n), `missing tool ${n}`)
 }
 for (const d of defs) {
@@ -87,7 +111,12 @@ assert.strictEqual(binaryAsset('ffprobe', 'win32', 'x64'), 'ffprobe-win32-x64.gz
 assert.strictEqual(NPM_REGISTRY, 'https://registry.npmmirror.com')
 assert.strictEqual(BINARY_MIRROR, 'https://cdn.npmmirror.com/binaries/ffmpeg-static')
 assert.strictEqual(cfg.ffmpegPath, 'ffmpeg')
-assert.strictEqual(cfg.ffprobePath, 'ffprobe')
+assert.strictEqual(renderOutputPath('/tmp/Downloads/alien.mp4', 'srt', { lang: 'zh-CN' }), path.join('/tmp/Downloads', 'alien.zh-CN.srt'))
+assert.strictEqual(renderOutputPath('/tmp/Downloads/alien.mp4', 'srt'), path.join('/tmp/Downloads', 'alien.srt'))
+assert.throws(() => subtitleLang('../secret'), /语言标记无效/)
+assert.strictEqual(isOutsideDirectory('/work/anime', '/Users/quanwei/Downloads/alien.zh-CN.srt'), true)
+assert.strictEqual(isOutsideDirectory('/work/anime', '/work/anime/alien.zh-CN.srt'), false)
+assert.strictEqual(isOutsideDirectory('', '/Users/quanwei/Downloads/alien.zh-CN.srt'), false)
 
 const workdir = await fs.mkdtemp(path.join(os.tmpdir(), 'pss-del-'))
 const marker = path.join(workdir, 'keep.txt')
@@ -109,7 +138,7 @@ const other = path.join(mediaDir, 'other.mp4')
 await fs.writeFile(video, 'video')
 await fs.writeFile(other, 'video')
 await fs.writeFile(path.join(mediaDir, 'ep.srt'), '1\n00:00:01,000 --> 00:00:02,000\n原文\n')
-await fs.writeFile(path.join(mediaDir, 'ep.rendered.srt'), '1\n00:00:01,000 --> 00:00:02,500\n译文\n')
+await fs.writeFile(path.join(mediaDir, 'ep.zh-CN.srt'), '1\n00:00:01,000 --> 00:00:02,500\n译文\n')
 const show = { workdir: showDir }
 await upsertProject(show, { id: 'show', name: 'show', videos: [video] })
 const loaded = await projectSubtitles(show, { video })

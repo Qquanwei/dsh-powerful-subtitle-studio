@@ -27,9 +27,8 @@ window.__ModuleLoader__.load({
 
     const zh = {
       'panel': '字幕工作室',
-      'title': '把视频做成字幕',
-      'subtitle': '拖入视频会建立项目。处理完成后，在详情里对着画面核对每一句字幕。',
-      'eyebrow': '从画面到字幕',
+      'title': '字幕工作台',
+      'subtitle': '拖入视频会建立项目',
       'drop.hint': '把视频文件或文件夹拖到这里',
       'drop.hint2': '支持一次拖入多个文件，或整个文件夹',
       'drop.add': '把下一集拖到这里',
@@ -37,7 +36,6 @@ window.__ModuleLoader__.load({
       'drop.added': '已加入这个项目。',
       'drop.dragging': '松开以添加',
       'drop.clear': '清空',
-      'hero.caption': '你好，从这一帧开始。',
       'sourceLang': '源语言',
       'sourceLang.auto': '自动识别',
       'targetLang': '目标语言',
@@ -113,7 +111,6 @@ window.__ModuleLoader__.load({
       'panel': 'Subtitle studio',
       'title': 'Turn videos into subtitles',
       'subtitle': 'Drop a video to create a project. After processing, the detail page plays the video beside each subtitle cue.',
-      'eyebrow': 'From picture to subtitle',
       'drop.hint': 'Drop video files or folders here',
       'drop.hint2': 'Drop several files, or a whole folder',
       'drop.add': 'Drop the next episode here',
@@ -121,7 +118,6 @@ window.__ModuleLoader__.load({
       'drop.added': 'Added to this project.',
       'drop.dragging': 'Release to add',
       'drop.clear': 'Clear',
-      'hero.caption': 'Hello — start from this frame.',
       'sourceLang': 'Source language',
       'sourceLang.auto': 'Detect automatically',
       'targetLang': 'Target language',
@@ -273,6 +269,17 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function GearMark() {
+      return h('svg', {
+        width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': true,
+      },
+        h('circle', { cx: 12, cy: 12, r: 3 }),
+        h('path', { d: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z' }),
+      )
+    }
+
     function Button({ primary, onClick, children, disabled, block }) {
       return h('button', {
         type: 'button', onClick, disabled,
@@ -392,6 +399,7 @@ window.__ModuleLoader__.load({
       const videoRef = useRef(null)
       const pendingSeek = useRef(null)
       const applyingSeek = useRef(false)
+      const seekTries = useRef(0)
 
       useEffect(() => {
         let alive = true
@@ -625,7 +633,7 @@ window.__ModuleLoader__.load({
             ? '用 subtitle_render 输出内挂软字幕 MKV'
             : renderMode === 'burn'
               ? '用 subtitle_render 烧录进视频 MP4'
-              : '用 subtitle_render 输出 SRT'
+              : `用 subtitle_render 输出 SRT，lang 传 ${targetLang}，不要传 output`
           const message =
             `项目「${currentProject?.name ?? ''}」（project=${currentProject?.id ?? 'default'}）：\n${line}\n\n` +
             `请继续完成字幕，翻译成 ${targetLang}。人名、地名和专有名词在这个会话里必须前后一致：沿用你已经确定过的译法，不要另起译名。\n` +
@@ -633,9 +641,10 @@ window.__ModuleLoader__.load({
             `${visualCheck === 'off' ? '不要抽帧。' : visualCheck === 'all' ? '翻译前对每句用 subtitle_frames 截取对应时间的画面，你自己看图核对说话人和画面文字。' : '人名或听写不确定时，用 subtitle_frames 抽几帧，你自己看图核对。'}` +
             '不要再调用单独的视觉模型，也没有画面分析工具。' +
             `${mode === 'asr' ? '按语音转写后再翻译。' : mode === 'translate' ? '只翻译已有字幕，不要转写。' : '没有字幕就先转写，已有字幕就直接翻译。'}\n` +
-            `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕，翻译时必须沿用这些开始和结束时间。不要检查静音点，不要把音频切成更短的片段再转写。\n` +
-            `2) 你自己直接翻译成 ${targetLang}\n` +
-            `3) ${output}\n` +
+            `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕。不要检查静音点，不要把音频切成更短的片段再转写。\n` +
+            `2) 你自己直接翻译成 ${targetLang}。不要写 Python 或任何生成脚本，也不要手写 SRT 时间轴。\n` +
+            `3) 调用 subtitle_compose：video 用上面的视频路径，cues 用刚才返回的 cues，texts 是按序号对齐的译文（双语时 texts 里只放译文）。条数必须一致，否则工具会报错。改某一句时再调用一次，只传 lines 里有改动的序号。\n` +
+            `4) ${output}，subtitle 用 subtitle_compose 返回的 srt 路径。srt 不传 output 时，文件名是视频名加语言，例如 alien.${targetLang}.srt。如果返回 warning，必须原样告诉用户。\n` +
             `完成后报告字幕文件路径。`
 
           const sid = await sendToCurrentProject(message)
@@ -697,28 +706,53 @@ window.__ModuleLoader__.load({
       const mediaSrc = activeVideo && typeof location !== 'undefined'
         ? new URL('/api/subtitle/media?path=' + encodeURIComponent(activeVideo), location.origin).toString()
         : ''
+      useEffect(() => {
+        const el = videoRef.current
+        if (!el || !mediaSrc || el.dataset.mediaSrc === mediaSrc) return
+        el.dataset.mediaSrc = mediaSrc
+        el.src = mediaSrc
+      }, [mediaSrc])
       const applySeek = (el) => {
         const target = pendingSeek.current
         if (!el || target == null || el.readyState < 1) return
-        if (Number.isFinite(el.duration) && target > el.duration) {
+        if (Number.isFinite(el.duration) && el.duration > 0 && target > el.duration) {
           pendingSeek.current = null
+          applyingSeek.current = false
           return
         }
-        if (Math.abs(el.currentTime - target) <= 0.05) return
+        if (Math.abs(el.currentTime - target) <= 0.05) {
+          applyingSeek.current = false
+          return
+        }
         applyingSeek.current = true
-        try { el.currentTime = target } finally { applyingSeek.current = false }
+        el.currentTime = target
       }
       const seek = (ms) => {
         const seconds = Math.max(0, Number(ms) || 0) / 1000
         pendingSeek.current = seconds
+        applyingSeek.current = true
+        seekTries.current = 0
         setPlayhead(seconds * 1000)
         applySeek(videoRef.current)
       }
-      const onUserSeeking = (e) => {
+      const onUserSeeking = () => {
         if (applyingSeek.current) return
+        pendingSeek.current = null
+      }
+      const finishSeek = (el) => {
         const target = pendingSeek.current
-        if (target == null) return
-        if (Math.abs(e.currentTarget.currentTime - target) > 0.5) pendingSeek.current = null
+        if (target != null && Math.abs(el.currentTime - target) > 0.4) {
+          if (applyingSeek.current && seekTries.current < 2) {
+            seekTries.current += 1
+            applySeek(el)
+            return
+          }
+          pendingSeek.current = null
+          applyingSeek.current = false
+        }
+        pendingSeek.current = null
+        applyingSeek.current = false
+        setPlayhead(el.currentTime * 1000)
       }
       const onPlayerTime = (e) => {
         const el = e.currentTarget
@@ -726,11 +760,12 @@ window.__ModuleLoader__.load({
         if (target != null) {
           if (Math.abs(el.currentTime - target) > 0.4) return
           pendingSeek.current = null
+          applyingSeek.current = false
         }
         setPlayhead(el.currentTime * 1000)
       }
       const playerHandlers = useRef({})
-      playerHandlers.current = { onPlayerTime, onUserSeeking, applySeek, setPlayhead, setVideoError }
+      playerHandlers.current = { onPlayerTime, onUserSeeking, applySeek, finishSeek, setPlayhead, setVideoError }
       const playerEvents = useRef(null)
       if (playerEvents.current == null) {
         playerEvents.current = {
@@ -738,12 +773,7 @@ window.__ModuleLoader__.load({
           onSeeking: (e) => playerHandlers.current.onUserSeeking(e),
           onLoadedMetadata: (e) => playerHandlers.current.applySeek(e.currentTarget),
           onCanPlay: (e) => playerHandlers.current.applySeek(e.currentTarget),
-          onSeeked: (e) => {
-            const el = e.currentTarget
-            const target = pendingSeek.current
-            if (target != null && Math.abs(el.currentTime - target) <= 0.4) pendingSeek.current = null
-            playerHandlers.current.setPlayhead(el.currentTime * 1000)
-          },
+          onSeeked: (e) => playerHandlers.current.finishSeek(e.currentTarget),
           onError: () => playerHandlers.current.setVideoError(true),
           onLoadedData: () => {
             playerHandlers.current.setVideoError(false)
@@ -761,7 +791,14 @@ window.__ModuleLoader__.load({
         : null
 
       const settingsPanel = showSettings
-        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 12, background: '#f8fafc' } },
+        ? h('div', {
+          style: {
+            position: 'absolute', top: 40, right: 0, width: 280, zIndex: 2,
+            display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 12,
+            background: '#f8fafc', border: '1px solid #e5e7eb',
+            boxShadow: '0 16px 40px rgba(0,0,0,0.28)',
+          },
+        },
           h('div', { style: { fontSize: 12, fontWeight: 650, color: '#6b7280' } }, t('settings.key')),
           h('input', { type: 'password', value: configKey, onChange: (e) => setConfigKey(e.target.value), placeholder: 'sk-…', style: inputStyle }),
           h('div', { style: { fontSize: 12, color: TOKEN.labelTertiary } }, t('settings.asrNote')),
@@ -807,7 +844,6 @@ window.__ModuleLoader__.load({
       },
         h('section', { className: 'pss-hero' },
           h('div', { className: 'pss-hero-copy' },
-            h('div', { className: 'pss-eyebrow' }, t('eyebrow')),
             h('div', { className: 'pss-hero-title' }, t('title')),
             h('div', { className: 'pss-hero-sub' }, t('subtitle')),
             h(DropZone, { compact: true, items: [], t, onAdd: createProjectFromDrop, onClear: () => {} }),
@@ -817,7 +853,6 @@ window.__ModuleLoader__.load({
               h('img', { src: HERO.cafe, alt: '', className: 'pss-shot pss-shot-a' }),
               h('div', { className: 'pss-shot-fade' }),
             ),
-            h('div', { className: 'pss-caption' }, t('hero.caption')),
             h('img', { src: HERO.train, alt: '', className: 'pss-shot pss-shot-b' }),
             h('img', { src: HERO.desk, alt: '', className: 'pss-shot pss-shot-c' }),
           ),
@@ -859,8 +894,6 @@ window.__ModuleLoader__.load({
             ),
           )
           : null,
-        h('div', { style: { flexShrink: 0 } }, h(Button, { disabled: busy, onClick: () => setShowSettings((v) => !v) }, t('settings.title'))),
-        settingsPanel,
       )
 
       const addToProject = (found) => {
@@ -912,7 +945,6 @@ window.__ModuleLoader__.load({
               activeVideo
                 ? h('video', {
                   ref: videoRef,
-                  src: mediaSrc,
                   controls: true,
                   playsInline: true,
                   preload: 'auto',
@@ -1024,8 +1056,10 @@ window.__ModuleLoader__.load({
         h('style', null, `
 .pss-hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(260px, 0.95fr); gap: 28px; align-items: center; padding: 8px 8px 4px; min-height: 420px; overflow: visible; color: #fff; background: transparent; }
 .pss-hero-copy { position: relative; z-index: 4; }
-.pss-eyebrow { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: #f9a8d4; }
-.pss-hero-title { margin-top: 12px; font-size: 46px; line-height: 1.02; font-weight: 740; letter-spacing: -0.04em; }
+.pss-hero-title { margin-top: 12px; padding-right: 40px; font-size: 46px; line-height: 1.02; font-weight: 740; letter-spacing: -0.04em; }
+.pss-gear { appearance: none; cursor: pointer; width: 32px; height: 32px; border: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; padding: 0; background: transparent; color: rgba(255,255,255,0.62); }
+.pss-gear:hover, .pss-gear[aria-expanded="true"] { color: #fff; background: rgba(255,255,255,0.1); }
+.pss-gear:disabled { opacity: 0.4; cursor: not-allowed; }
 .pss-hero-sub { margin: 12px 0 18px; max-width: 420px; font-size: 14px; line-height: 1.6; color: rgba(255,255,255,0.72); }
 .pss-hero-art { position: relative; height: 360px; }
 .pss-shot { position: absolute; object-fit: cover; }
@@ -1034,7 +1068,6 @@ window.__ModuleLoader__.load({
 .pss-shot-fade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, #141414 0%, rgba(20,20,20,0.88) 14%, rgba(20,20,20,0.2) 34%, rgba(20,20,20,0) 48%, rgba(20,20,20,0) 64%, rgba(20,20,20,0.72) 86%, #141414 100%), linear-gradient(180deg, #141414 0%, rgba(20,20,20,0) 14%, rgba(20,20,20,0) 48%, rgba(20,20,20,0.78) 76%, #141414 100%); }
 .pss-shot-b { right: 8px; top: 18px; z-index: 3; width: 42%; height: 118px; border-radius: 14px; border: 3px solid rgba(255,255,255,0.92); box-shadow: 0 16px 32px rgba(0,0,0,0.45); transform: rotate(3deg); }
 .pss-shot-c { right: 22px; bottom: 16px; z-index: 3; width: 38%; height: 108px; border-radius: 14px; border: 3px solid rgba(255,255,255,0.92); box-shadow: 0 16px 32px rgba(0,0,0,0.45); transform: rotate(-3deg); }
-.pss-caption { position: absolute; left: 18%; top: 248px; z-index: 2; max-width: 46%; background: rgba(0,0,0,0.78); color: #fff; font-size: 13px; line-height: 1.35; padding: 5px 9px; border-radius: 4px; }
 @media (max-width: 860px) { .pss-hero { grid-template-columns: 1fr; min-height: 0; } .pss-hero-art { height: 280px; } .pss-hero-title { font-size: 36px; } }
 .pss-del { appearance: none; cursor: pointer; flex-shrink: 0; align-self: center; margin-right: 4px; border: 0; border-radius: 8px; background: transparent; color: #9ca3af; font-family: inherit; font-size: 14px; line-height: 1; padding: 6px 8px; }
 .pss-del:hover { color: #be123c; background: #fff1f2; }
@@ -1045,6 +1078,18 @@ window.__ModuleLoader__.load({
 @keyframes pss-spin { to { transform: rotate(360deg); } }
 `),
         onHome ? homePage : detailPage,
+        onHome ? h('div', { style: { position: 'absolute', top: 14, right: 14, zIndex: 4 } },
+          h('button', {
+            type: 'button',
+            className: 'pss-gear',
+            title: t('settings.title'),
+            'aria-label': t('settings.title'),
+            'aria-expanded': showSettings ? 'true' : 'false',
+            disabled: busy,
+            onClick: () => setShowSettings((v) => !v),
+          }, h(GearMark)),
+          settingsPanel,
+        ) : null,
         busy ? h('div', {
           style: {
             position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 5,

@@ -21,6 +21,9 @@
     "README.md",
     "LICENSE"
   ],
+  "scripts": {
+    "test": "node test/unit.js && node test/smoke.js"
+  },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {

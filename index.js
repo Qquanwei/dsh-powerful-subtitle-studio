@@ -62,7 +62,7 @@ async function streamVideo(request, file) {
 
 export const name = 'powerful-subtitle-studio'
 
-export const inject = ['tools', 'llm', 'connection', 'attachments']
+export const inject = ['tools', 'llm', 'connection', 'attachments', 'workingDirectory']
 
 function applyConfig(cfg, opts) {
   const workdir = expandHome(expandEnv(cfg.workdir))

@@ -44,7 +44,8 @@ dsh plugin --profile desktop add powerful-subtitle-studio
 |---|---|
 | `subtitle_transcribe` | 把音频转成不超过 7 秒的字幕 |
 | `subtitle_frames` | 按时间点截图，交给当前模型自己看 |
-| `subtitle_render` | 写出 SRT、内挂软字幕，或烧录进画面 |
+| `subtitle_compose` | 按序号把译文贴回原来的时间轴，写成 SRT |
+| `subtitle_render` | 写出 `视频名.语言.srt`、内挂软字幕，或烧录进画面。写到会话工作区外时会在结果里提示 |
 
 翻译不另调接口，由这条会话自己完成。
 
