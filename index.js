@@ -2,6 +2,8 @@
 import { createReadStream } from 'node:fs'
 import { Readable } from 'node:stream'
 import { promises as fs } from 'node:fs'
+import { createServer } from 'node:http'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
 import { createStudio, buildToolDefinitions, preflight, preprocessForStudio, listProjects, upsertProject, deleteProject, projectVideoFile, projectSubtitles, loadUserConfig, saveUserConfig, maskKey, binaryStatus, installBinaries } from './lib/studio.js'
 import { ASR_MODEL } from './lib/ai.js'
@@ -22,7 +24,7 @@ async function streamVideo(request, file) {
   const headers = {
     'content-type': VIDEO_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
     'accept-ranges': 'bytes',
-    'cache-control': 'private, max-age=3600',
+    'cache-control': 'no-store',
   }
   if (request.method === 'HEAD') {
     return new Response(null, { status: 200, headers: { ...headers, 'content-length': String(size) } })
@@ -60,6 +62,72 @@ async function streamVideo(request, file) {
   })
 }
 
+function sameToken(given, expected) {
+  const a = Buffer.from(String(given))
+  const b = Buffer.from(String(expected))
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+// 详情页在 dsh-app:// 里。壳会把这个源的请求转发到本机，并丢掉 Content-Length。
+// 播放器因此拿不到可拖动的分段，一点进度条就把文件从头再打开。
+// 预览走单独的 127.0.0.1，Range 和长度都留在响应里。
+function startMediaServer(cfg) {
+  const token = randomBytes(24).toString('base64url')
+  const server = createServer(async (req, res) => {
+    const fail = (status) => {
+      if (res.writableEnded) return
+      if (!res.headersSent) res.writeHead(status)
+      res.end()
+    }
+    try {
+      const url = new URL(req.url || '/', 'http://127.0.0.1')
+      if (req.method !== 'GET' && req.method !== 'HEAD') return fail(405)
+      if (url.pathname !== '/media') return fail(404)
+      if (!sameToken(url.searchParams.get('token'), token)) return fail(403)
+      const file = await projectVideoFile(cfg, url.searchParams.get('path'))
+      const range = Array.isArray(req.headers.range) ? req.headers.range[0] : req.headers.range
+      const request = new Request('http://127.0.0.1/media', {
+        method: req.method,
+        headers: range ? { range } : {},
+      })
+      const response = await streamVideo(request, file)
+      const headers = {}
+      response.headers.forEach((value, key) => { headers[key] = value })
+      res.writeHead(response.status, headers)
+      if (req.method === 'HEAD' || response.body == null) {
+        res.end()
+        return
+      }
+      const reader = response.body.getReader()
+      const cancel = () => { reader.cancel().catch(() => {}) }
+      res.on('close', cancel)
+      try {
+        for (;;) {
+          const chunk = await reader.read()
+          if (chunk.done || res.destroyed) break
+          if (!res.write(chunk.value)) await new Promise((resolve) => res.once('drain', resolve))
+        }
+      } finally {
+        res.off('close', cancel)
+        if (!res.writableEnded) res.end()
+      }
+    } catch {
+      fail(404)
+    }
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      resolve({
+        server,
+        origin: `http://127.0.0.1:${address.port}`,
+        token,
+      })
+    })
+  })
+}
+
 export const name = 'powerful-subtitle-studio'
 
 export const inject = ['tools', 'llm', 'connection', 'attachments', 'workingDirectory']
@@ -81,6 +149,11 @@ export function apply(ctx, config) {
   const { studio, cfg } = createStudio(ctx, config ?? {})
   const defs = buildToolDefinitions({ studio, cfg })
   const disposers = []
+  const mediaReady = startMediaServer(cfg).catch((err) => {
+    console.error('[powerful-subtitle-studio] media server failed:', err)
+    return null
+  })
+  disposers.push(() => { mediaReady.then((auth) => auth?.server.close()) })
   for (const def of defs) {
     disposers.push(ctx.tools.register(def))
   }
@@ -103,6 +176,11 @@ export function apply(ctx, config) {
       if (name === 'binaries/status') return rpcOk(await binaryStatus(cfg))
       if (name === 'binaries/download') return rpcOk(await installBinaries(cfg))
       if (name === 'subtitles') return rpcOk(await projectSubtitles(cfg, body))
+      if (name === 'media/ticket') {
+        const auth = await mediaReady
+        if (!auth) return rpcFail('media server unavailable')
+        return rpcOk({ origin: auth.origin, token: auth.token })
+      }
       return rpcFail(`unknown endpoint ${name}`)
     } catch (err) {
       return rpcFail(err?.message || err)
@@ -112,7 +190,7 @@ export function apply(ctx, config) {
     const stops = []
     const register = ctx.connection?.fetch?.register
     if (typeof register === 'function') {
-      for (const name of ['projects/list', 'projects/save', 'projects/delete', 'config/save', 'preprocess', 'check', 'binaries/status', 'binaries/download', 'subtitles']) {
+      for (const name of ['projects/list', 'projects/save', 'projects/delete', 'config/save', 'preprocess', 'check', 'binaries/status', 'binaries/download', 'subtitles', 'media/ticket']) {
         try {
           stops.push(register({
             path: `/api/subtitle/${name}`,

@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { parseBailianResult, cuesFromWords, ASR_MODEL } from '../lib/ai.js'
 import { detectMode } from '../lib/pipeline.js'
-import { composeCues } from '../lib/srt.js'
-import { composeSubtitle, createStudio, buildToolDefinitions, projectSubtitles, upsertProject } from '../lib/studio.js'
+import { composeCues, parseSubtitle, serializeSrt } from '../lib/srt.js'
+import { composeSubtitle, createStudio, buildToolDefinitions, projectSubtitles, upsertProject, noteAsrCues } from '../lib/studio.js'
 import { renderOutputPath, isOutsideDirectory } from '../lib/render.js'
 import { expandEnv, expandHome, clamp, parseJson } from '../lib/util.js'
 import { durationSeconds, isVideoFile, isTextSubtitleCodec, isImageSubtitleCodec } from '../lib/media.js'
@@ -30,6 +30,25 @@ const fromAsr = cuesFromWords(parsed.words)
 assert.strictEqual(fromAsr[0].start, 13700)
 assert.strictEqual(fromAsr[0].end, 18260)
 assert.strictEqual(fromAsr[0].text, '跳起来吧。')
+
+const spoken = parseBailianResult({
+  transcripts: [{
+    sentences: [
+      { begin_time: 1000, end_time: 1800, text: '你好。', speaker_id: 0, words: [{ begin_time: 1000, end_time: 1800, text: '你好', punctuation: '。' }] },
+      { begin_time: 1800, end_time: 2600, text: '再见。', speaker_id: 1, words: [{ begin_time: 1800, end_time: 2600, text: '再见', punctuation: '。' }] },
+    ],
+  }],
+})
+const splitSpeakers = cuesFromWords(spoken.words)
+assert.deepStrictEqual(splitSpeakers.map((c) => [c.text, c.speaker, c.start]), [['你好。', 0, 1000], ['再见。', 1, 1800]])
+const painted = serializeSrt(splitSpeakers)
+assert.ok(painted.includes('<font color="#7dd3fc">你好。</font>'))
+assert.ok(painted.includes('<font color="#fde68a">再见。</font>'))
+const roundTrip = parseSubtitle(painted)
+assert.strictEqual(roundTrip[0].text, '你好。')
+assert.strictEqual(roundTrip[0].color, '#7dd3fc')
+assert.strictEqual(roundTrip[1].color, '#fde68a')
+assert.ok(!serializeSrt([{ start: 0, end: 1000, text: '一个人', speaker: 0 }]).includes('<font'))
 
 const gapped = cuesFromWords([
   { start: 1, end: 1.2, text: '甲', punctuation: '' },
@@ -98,6 +117,27 @@ await fs.writeFile(path.join(dir, 'ep.zh-CN.srt'), '1\n00:00:01,200 --> 00:00:02
 const loaded = await projectSubtitles(cfg, { video })
 assert.strictEqual(loaded.cues[0].text, '译文')
 assert.strictEqual(loaded.cues[0].start, 1200)
+
+await noteAsrCues(cfg, 'show', [
+  { start: 1000, end: 2000, speaker: 0 },
+  { start: 3000, end: 4000, speaker: 1 },
+])
+const colored = await composeSubtitle(cfg, {
+  project: 'show',
+  video,
+  cues: [
+    { start: 1000, end: 2000, text: '你好' },
+    { start: 3000, end: 4000, text: '再见' },
+  ],
+  texts: ['甲', '乙'],
+  bilingual: false,
+})
+const coloredSrt = await fs.readFile(colored.srt, 'utf8')
+assert.ok(coloredSrt.includes('<font color="#7dd3fc">甲</font>'))
+assert.ok(coloredSrt.includes('<font color="#fde68a">乙</font>'))
+const shown = parseSubtitle(coloredSrt)
+assert.strictEqual(shown[0].color, '#7dd3fc')
+assert.strictEqual(shown[1].text, '乙')
 
 await fs.rm(dir, { recursive: true, force: true })
 console.log('ALL UNIT TESTS PASSED')

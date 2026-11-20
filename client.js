@@ -396,10 +396,22 @@ window.__ModuleLoader__.load({
       const [playhead, setPlayhead] = useState(0)
       const [videoError, setVideoError] = useState(false)
       const [sessionRun, setSessionRun] = useState(null)
+      const [mediaAuth, setMediaAuth] = useState(null)
       const videoRef = useRef(null)
       const pendingSeek = useRef(null)
       const applyingSeek = useRef(false)
       const seekTries = useRef(0)
+
+      useEffect(() => {
+        let alive = true
+        Promise.resolve(remote?.mediaTicket?.() ?? null)
+          .then((res) => {
+            if (!alive) return
+            setMediaAuth(res?.origin && res?.token ? { origin: res.origin, token: res.token } : false)
+          })
+          .catch(() => { if (alive) setMediaAuth(false) })
+        return () => { alive = false }
+      }, [remote])
 
       useEffect(() => {
         let alive = true
@@ -633,18 +645,17 @@ window.__ModuleLoader__.load({
             ? '用 subtitle_render 输出内挂软字幕 MKV'
             : renderMode === 'burn'
               ? '用 subtitle_render 烧录进视频 MP4'
-              : `用 subtitle_render 输出 SRT，lang 传 ${targetLang}，不要传 output`
+              : '用 subtitle_render 输出 SRT'
           const message =
             `项目「${currentProject?.name ?? ''}」（project=${currentProject?.id ?? 'default'}）：\n${line}\n\n` +
             `请继续完成字幕，翻译成 ${targetLang}。人名、地名和专有名词在这个会话里必须前后一致：沿用你已经确定过的译法，不要另起译名。\n` +
             `${bilingual ? '字幕做成双语（原文在上，译文在下）。' : '字幕只保留译文。'}` +
             `${visualCheck === 'off' ? '不要抽帧。' : visualCheck === 'all' ? '翻译前对每句用 subtitle_frames 截取对应时间的画面，你自己看图核对说话人和画面文字。' : '人名或听写不确定时，用 subtitle_frames 抽几帧，你自己看图核对。'}` +
-            '不要再调用单独的视觉模型，也没有画面分析工具。' +
-            `${mode === 'asr' ? '按语音转写后再翻译。' : mode === 'translate' ? '只翻译已有字幕，不要转写。' : '没有字幕就先转写，已有字幕就直接翻译。'}\n` +
-            `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕。不要检查静音点，不要把音频切成更短的片段再转写。\n` +
+            `${mode === 'asr' ? '按语音转写后再翻译。' : mode === 'translate' ? '只翻译已有字幕，不要转写。' : ''}\n` +
+            `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕，不同 speaker 不要并成一条。不要检查静音点，不要把音频切成更短的片段再转写。\n` +
             `2) 你自己直接翻译成 ${targetLang}。不要写 Python 或任何生成脚本，也不要手写 SRT 时间轴。\n` +
             `3) 调用 subtitle_compose：video 用上面的视频路径，cues 用刚才返回的 cues，texts 是按序号对齐的译文（双语时 texts 里只放译文）。条数必须一致，否则工具会报错。改某一句时再调用一次，只传 lines 里有改动的序号。\n` +
-            `4) ${output}，subtitle 用 subtitle_compose 返回的 srt 路径。srt 不传 output 时，文件名是视频名加语言，例如 alien.${targetLang}.srt。如果返回 warning，必须原样告诉用户。\n` +
+            `4) ${output}\n` +
             `完成后报告字幕文件路径。`
 
           const sid = await sendToCurrentProject(message)
@@ -703,9 +714,13 @@ window.__ModuleLoader__.load({
         borderRadius: 16,
         boxShadow: '0 1px 2px rgba(17,24,39,0.04)',
       }
-      const mediaSrc = activeVideo && typeof location !== 'undefined'
-        ? new URL('/api/subtitle/media?path=' + encodeURIComponent(activeVideo), location.origin).toString()
-        : ''
+      const mediaSrc = !activeVideo || mediaAuth == null
+        ? ''
+        : mediaAuth
+          ? mediaAuth.origin + '/media?token=' + encodeURIComponent(mediaAuth.token) + '&path=' + encodeURIComponent(activeVideo)
+          : (typeof location !== 'undefined'
+            ? new URL('/api/subtitle/media?path=' + encodeURIComponent(activeVideo), location.origin).toString()
+            : '')
       useEffect(() => {
         const el = videoRef.current
         if (!el || !mediaSrc || el.dataset.mediaSrc === mediaSrc) return
@@ -939,9 +954,9 @@ window.__ModuleLoader__.load({
         notice ? h(Notice, { tone: notice.tone }, notice.text) : null,
         h('div', { style: { flex: 1, minHeight: 0, display: 'flex', gap: 12 } },
           h('section', {
-            style: { ...card, flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 12, gap: 10 },
+            style: { ...card, flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 12, gap: 10, overflowY: 'auto' },
           },
-            h('div', { style: { position: 'relative', flex: 1, minHeight: 220, borderRadius: 12, overflow: 'hidden', background: '#0b0b0b' } },
+            h('div', { style: { position: 'relative', width: '100%', aspectRatio: '1 / 1', flexShrink: 0, borderRadius: 12, overflow: 'hidden', background: '#0b0b0b' } },
               activeVideo
                 ? h('video', {
                   ref: videoRef,
@@ -963,7 +978,7 @@ window.__ModuleLoader__.load({
                   style: { position: 'absolute', left: '8%', right: '8%', bottom: 84, textAlign: 'center', pointerEvents: 'none' },
                 }, h('span', {
                   style: {
-                    display: 'inline-block', maxWidth: '100%', background: 'rgba(0,0,0,0.82)', color: '#ffffff',
+                    display: 'inline-block', maxWidth: '100%', background: 'rgba(0,0,0,0.82)', color: cues[activeCue].color || '#ffffff',
                     borderRadius: 4, padding: '6px 12px', fontSize: 16, lineHeight: 1.45, whiteSpace: 'pre-wrap',
                   },
                 }, cues[activeCue].text))
@@ -974,7 +989,7 @@ window.__ModuleLoader__.load({
                 }, t('player.unsupported'))
                 : null,
             ),
-            h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, flex: '1 1 200px', minHeight: 0 } },
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, flex: '1 0 180px', minHeight: 180 } },
               h(DropZone, { quiet: true, hint: t('drop.add'), hint2: t('drop.add2'), items: [], t, onAdd: addToProject, onClear: () => {} }),
               savedVideos.length > 0
                 ? h('div', { style: { flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 } },
@@ -1031,7 +1046,10 @@ window.__ModuleLoader__.load({
                   'aria-current': i === activeCue ? 'true' : undefined,
                   onClick: () => seek(cue.start),
                 },
-                  h('div', { style: { fontSize: 12, color: '#6b7280' } }, clock(cue.start) + '  ' + clock(cue.end)),
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280' } },
+                    cue.color ? h('span', { style: { width: 8, height: 8, borderRadius: 99, background: cue.color, flexShrink: 0 } }) : null,
+                    clock(cue.start) + '  ' + clock(cue.end),
+                  ),
                   h('div', { style: { marginTop: 4, fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap' } }, cue.text),
                 )),
             ),
@@ -1206,6 +1224,7 @@ window.__ModuleLoader__.load({
           binaryStatus: () => rpc('binaries/status', {}),
           downloadBinaries: () => rpc('binaries/download', {}),
           subtitles: (opts) => rpc('subtitles', opts),
+          mediaTicket: () => rpc('media/ticket', {}),
         }
 
         const Page = (props) => h(SubtitleStudioPage, {
