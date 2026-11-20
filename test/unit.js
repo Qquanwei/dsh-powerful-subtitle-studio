@@ -5,7 +5,7 @@ import path from 'node:path'
 import { parseBailianResult, cuesFromWords, ASR_MODEL } from '../lib/ai.js'
 import { detectMode } from '../lib/pipeline.js'
 import { composeCues, parseSubtitle, serializeSrt } from '../lib/srt.js'
-import { composeSubtitle, createStudio, buildToolDefinitions, projectSubtitles, upsertProject, noteAsrCues, embedSubtitle } from '../lib/studio.js'
+import { composeSubtitle, createStudio, buildToolDefinitions, projectSubtitles, upsertProject, noteAsrCues, embedSubtitle, hasAsrKey } from '../lib/studio.js'
 import { renderOutputPath, isOutsideDirectory } from '../lib/render.js'
 import { expandEnv, expandHome, clamp, parseJson } from '../lib/util.js'
 import { durationSeconds, isVideoFile, isTextSubtitleCodec, isImageSubtitleCodec } from '../lib/media.js'
@@ -104,6 +104,12 @@ await fs.writeFile(path.join(dir, 'config.json'), JSON.stringify({ asr: { model:
 const { cfg } = createStudio({}, { workdir: dir })
 assert.strictEqual(cfg.asr.model, ASR_MODEL)
 assert.strictEqual(cfg.asr.apiKey, 'sk-test')
+assert.strictEqual(hasAsrKey(cfg), true)
+assert.strictEqual(hasAsrKey({ asr: { apiKey: '' } }), false)
+assert.strictEqual(hasAsrKey({ asr: { apiKey: '${PSS_UNIT_TOKEN}' } }), false)
+process.env.PSS_UNIT_TOKEN = 'sk-from-env'
+assert.strictEqual(hasAsrKey({ asr: { apiKey: '${PSS_UNIT_TOKEN}' } }), true)
+delete process.env.PSS_UNIT_TOKEN
 
 const defs = buildToolDefinitions({ studio: { cfg, ctx: {}, mkTemp: async () => dir }, cfg })
 const renderTool = defs.find((d) => d.name === 'subtitle_render')

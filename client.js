@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
       return nodes
     }
     const VIDEO_STYLE = { width: '100%', height: '100%', objectFit: 'contain', background: '#0b0b0b' }
+    const BAILIAN_CONSOLE = 'https://bailian.console.aliyun.com/'
 
     const zh = {
       'panel': '字幕工作室',
@@ -80,6 +81,9 @@ window.__ModuleLoader__.load({
       'hint.failed': '发送失败：',
       'hint.noHostPath': '无法解析拖入项的本地路径（需桌面版）。',
       'hint.emptyKey': '请先输入 API Key。',
+      'key.required': '先填写百炼 API Key',
+      'key.requiredHint': '没有 Key 不能转写。保存之后才能拖入视频。',
+      'key.checking': '正在确认百炼配置…',
       'hint.saveFailed': '保存失败（接口调用失败，未创建会话）。',
       'hint.preprocessFailed': '预处理失败（接口调用失败，未创建会话）。',
       'bins.missing': '没有检测到 ffmpeg / ffprobe',
@@ -95,6 +99,7 @@ window.__ModuleLoader__.load({
       'settings.save': '保存配置',
       'settings.saved': '配置已保存（直接写入，未创建会话）。',
       'settings.asrNote': '语音识别用百炼 paraformer-v2 文件转写。',
+      'settings.console': '打开百炼控制台',
       'project.new': '新建项目',
       'project.namePlaceholder': '例如：葬送的芙莉莲 第一季',
       'project.create': '创建项目',
@@ -167,6 +172,9 @@ window.__ModuleLoader__.load({
       'hint.failed': 'Send failed: ',
       'hint.noHostPath': 'Cannot resolve the local path of the dropped item (Desktop required).',
       'hint.emptyKey': 'Please enter the API key first.',
+      'key.required': 'Enter a Bailian API key first',
+      'key.requiredHint': 'Transcription needs this key. You can drop a video after it is saved.',
+      'key.checking': 'Checking the Bailian key…',
       'hint.saveFailed': 'Save failed (API call failed; no conversation created).',
       'hint.preprocessFailed': 'Preprocess failed (API call failed; no conversation created).',
       'bins.missing': 'ffmpeg / ffprobe was not found',
@@ -182,6 +190,7 @@ window.__ModuleLoader__.load({
       'settings.save': 'Save config',
       'settings.saved': 'Config saved (written directly; no conversation created).',
       'settings.asrNote': 'ASR uses Bailian paraformer-v2 file transcription.',
+      'settings.console': 'Open the Bailian console',
       'project.new': 'New project',
       'project.namePlaceholder': 'e.g. Frieren Season 1',
       'project.create': 'Create',
@@ -400,13 +409,14 @@ window.__ModuleLoader__.load({
       const [targetLang, setTargetLang] = useState('zh-CN')
       const [mode, setMode] = useState('auto')
       const [visualCheck, setVisualCheck] = useState('auto')
-      const [bilingual, setBilingual] = useState(false)
+      const [bilingual, setBilingual] = useState(true)
       const [renderMode, setRenderMode] = useState('srt')
       const [notice, setNotice] = useState(null)
       const [busy, setBusy] = useState(false)
       const [embedding, setEmbedding] = useState(false)
       const [configKey, setConfigKey] = useState('')
       const [showSettings, setShowSettings] = useState(false)
+      const [asrReady, setAsrReady] = useState(null)
       const [projects, setProjects] = useState([])
       const [currentProject, setCurrentProject] = useState(null)
       const [deleting, setDeleting] = useState(false)
@@ -440,6 +450,9 @@ window.__ModuleLoader__.load({
         Promise.resolve(remote?.listProjects?.() ?? null)
           .then((res) => { if (alive && res && Array.isArray(res.projects)) setProjects(res.projects) })
           .catch(() => {})
+        Promise.resolve(remote?.configStatus?.() ?? null)
+          .then((res) => { if (alive) setAsrReady(res?.asr === false ? false : true) })
+          .catch(() => { if (alive) setAsrReady(true) })
         Promise.resolve(remote?.binaryStatus?.() ?? null)
           .then((res) => { if (alive && res) setBins(res) })
           .catch(() => {})
@@ -576,6 +589,7 @@ window.__ModuleLoader__.load({
 
       // 列表页直接拖视频 → 自动建项目（标题自动生成）并进入详情。
       const createProjectFromDrop = async (found) => {
+        if (asrReady === false) return
         if (!found || found.length === 0) return
         const resolved = found.filter((it) => !it.unresolved)
         if (resolved.length === 0) { setNotice({ tone: 'error', text: t('hint.noHostPath') }); return }
@@ -718,7 +732,7 @@ window.__ModuleLoader__.load({
         // 纯接口保存，绝不创建会话
         Promise.resolve(remote?.saveConfig?.(opts) ?? null)
           .then((res) => {
-            if (res && res.saved !== false) { setConfigKey(''); setNotice({ tone: 'success', text: t('settings.saved') }) }
+            if (res && res.saved !== false) { setConfigKey(''); setAsrReady(true); setNotice({ tone: 'success', text: t('settings.saved') }) }
             else { setNotice({ tone: 'error', text: t('hint.saveFailed') }) }
           })
           .catch((err) => setNotice({ tone: 'error', text: t('hint.failed') + (err?.message || String(err)) }))
@@ -846,6 +860,11 @@ window.__ModuleLoader__.load({
         )
         : null
 
+      const consoleLink = (color) => h('a', {
+        href: BAILIAN_CONSOLE, target: '_blank', rel: 'noopener noreferrer',
+        style: { fontSize: 12, color, textDecoration: 'underline' },
+      }, t('settings.console'))
+
       const settingsPanel = showSettings
         ? h('div', {
           style: {
@@ -858,6 +877,7 @@ window.__ModuleLoader__.load({
           h('div', { style: { fontSize: 12, fontWeight: 650, color: '#6b7280' } }, t('settings.key')),
           h('input', { type: 'password', value: configKey, onChange: (e) => setConfigKey(e.target.value), placeholder: 'sk-…', style: inputStyle }),
           h('div', { style: { fontSize: 12, color: TOKEN.labelTertiary } }, t('settings.asrNote')),
+          consoleLink('#6d28d9'),
           h(Button, { primary: true, onClick: saveConfig }, t('settings.save')),
         )
         : null
@@ -917,42 +937,35 @@ window.__ModuleLoader__.load({
         notice ? h(Notice, { tone: notice.tone }, notice.text) : null,
         unresolvedCount > 0 ? h(Notice, { tone: 'error' }, t('hint.noHostPath')) : null,
         projects.length > 0
-          ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, minHeight: 0, flexShrink: 0 } },
-            h('div', { style: { fontSize: 13, fontWeight: 700 } }, t('project.list')),
-            h('div', { style: { overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 } },
-              projects.map((p) => h('div', {
-                key: p.id,
-                style: {
-                  display: 'flex', alignItems: 'center', minWidth: 0, padding: '4px 4px 4px 12px',
-                  background: '#1f1f1f', border: '1px solid #2a2a2a', borderRadius: 12,
-                },
+          ? h('div', { className: 'pss-projects' },
+            h('div', { className: 'pss-projects-title' }, t('project.list')),
+            projects.map((p, i) => h('div', { key: p.id, className: 'pss-project' },
+              h('button', {
+                type: 'button',
+                className: 'pss-project-open',
+                onClick: () => openProject(p),
               },
-                h('button', {
-                  type: 'button',
-                  onClick: () => openProject(p),
-                  style: {
-                    flex: 1, minWidth: 0, border: 0, background: 'transparent', textAlign: 'left',
-                    fontFamily: SANS, cursor: 'pointer', padding: '8px 0', color: '#ffffff',
-                  },
-                },
-                  h('div', { style: { fontSize: 14, fontWeight: 650 } }, p.name || p.id),
-                  h('div', { style: { marginTop: 2, fontSize: 12, color: '#6b7280' } }, `${(p.videos ?? []).length} ${t('project.episodes')}`),
+                h('span', { className: 'pss-project-mark', style: { background: CLIP[i % CLIP.length] } }),
+                h('span', { className: 'pss-project-copy' },
+                  h('span', { className: 'pss-project-name' }, p.name || p.id),
+                  h('span', { className: 'pss-project-meta' }, `${(p.videos ?? []).length} ${t('project.episodes')}`),
                 ),
-                h('button', {
-                  type: 'button',
-                  className: 'pss-del',
-                  title: t('project.delete'),
-                  'aria-label': t('project.delete'),
-                  disabled: deleting,
-                  onClick: () => removeProject(p),
-                }, '×'),
-              )),
-            ),
+              ),
+              h('button', {
+                type: 'button',
+                className: 'pss-del',
+                title: t('project.delete'),
+                'aria-label': t('project.delete'),
+                disabled: deleting,
+                onClick: () => removeProject(p),
+              }, t('project.delete')),
+            )),
           )
           : null,
       )
 
       const addToProject = (found) => {
+        if (asrReady === false) return
         const list = found ?? []
         if (list.some((it) => it.unresolved)) setNotice({ tone: 'error', text: t('hint.noHostPath') })
         const added = list.filter((it) => !it.unresolved).map((it) => it.path)
@@ -1104,6 +1117,32 @@ window.__ModuleLoader__.load({
         document.getElementById('pss-cue-' + activeCue)?.scrollIntoView({ block: 'nearest' })
       }, [activeCue])
 
+      const keyGate = h('div', {
+        style: { flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+      },
+        h('div', {
+          style: {
+            width: 420, maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 12,
+            padding: 24, borderRadius: 16, background: '#1f1f1f', border: '1px solid #2a2a2a',
+          },
+        },
+          h('div', { style: { fontSize: 22, fontWeight: 720, color: '#ffffff' } }, asrReady === false ? t('key.required') : t('key.checking')),
+          asrReady === false
+            ? h('div', { style: { fontSize: 13, lineHeight: 1.6, color: 'rgba(255,255,255,0.72)' } }, t('key.requiredHint'))
+            : null,
+          asrReady === false
+            ? h('input', {
+              type: 'password', value: configKey, autoFocus: true,
+              onChange: (e) => setConfigKey(e.target.value), placeholder: 'sk-…', style: inputStyle,
+            })
+            : null,
+          asrReady === false ? h('div', { style: { fontSize: 12, color: 'rgba(255,255,255,0.5)' } }, t('settings.asrNote')) : null,
+          asrReady === false ? consoleLink('#c4b5fd') : null,
+          notice ? h(Notice, { tone: notice.tone }, notice.text) : null,
+          asrReady === false ? h(Button, { primary: true, onClick: saveConfig }, t('settings.save')) : null,
+        ),
+      )
+
       return h('div', {
         style: {
           ...LIGHT_VARS,
@@ -1129,16 +1168,27 @@ window.__ModuleLoader__.load({
 .pss-shot-b { right: 8px; top: 18px; z-index: 3; width: 42%; height: 118px; border-radius: 14px; border: 3px solid rgba(255,255,255,0.92); box-shadow: 0 16px 32px rgba(0,0,0,0.45); transform: rotate(3deg); }
 .pss-shot-c { right: 22px; bottom: 16px; z-index: 3; width: 38%; height: 108px; border-radius: 14px; border: 3px solid rgba(255,255,255,0.92); box-shadow: 0 16px 32px rgba(0,0,0,0.45); transform: rotate(-3deg); }
 @media (max-width: 860px) { .pss-hero { grid-template-columns: 1fr; min-height: 0; } .pss-hero-art { height: 280px; } .pss-hero-title { font-size: 36px; } }
-.pss-del { appearance: none; cursor: pointer; flex-shrink: 0; align-self: center; margin-right: 4px; border: 0; border-radius: 8px; background: transparent; color: #9ca3af; font-family: inherit; font-size: 14px; line-height: 1; padding: 6px 8px; }
-.pss-del:hover { color: #be123c; background: #fff1f2; }
+.pss-projects { display: flex; flex-direction: column; gap: 10px; }
+.pss-projects-title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: rgba(255,255,255,0.55); }
+.pss-project { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px 6px 6px; background: #1c1c1c; border: 1px solid #2c2c2c; border-radius: 16px; }
+.pss-project:hover { background: #242424; border-color: #3a3a3a; }
+.pss-project-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; border: 0; background: transparent; text-align: left; font-family: inherit; cursor: pointer; color: #fff; padding: 10px 8px; }
+.pss-project-mark { width: 4px; align-self: stretch; border-radius: 99px; flex-shrink: 0; }
+.pss-project-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pss-project-name { font-size: 15px; font-weight: 650; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pss-project-meta { font-size: 12px; color: #9ca3af; }
+.pss-del { appearance: none; cursor: pointer; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); border: 0; border-radius: 999px; background: #e11d48; color: #ffffff; font-family: inherit; font-size: 12px; font-weight: 650; line-height: 1; padding: 7px 12px; opacity: 0; pointer-events: none; }
+.pss-project:hover .pss-del, .pss-project:focus-within .pss-del { opacity: 1; pointer-events: auto; }
+.pss-project:hover .pss-project-open, .pss-project:focus-within .pss-project-open { padding-right: 72px; }
+.pss-del:hover { background: #be123c; }
 .pss-cue { appearance: none; cursor: pointer; text-align: left; width: 100%; border: 0; border-bottom: 1px solid #f3f4f6; border-left: 3px solid transparent; background: transparent; padding: 12px 16px; font-family: inherit; color: inherit; }
 .pss-cue:hover { background: #f8fafc; }
 .pss-cue[aria-current="true"] { background: #f0fdfa; border-left-color: #14b8a6; }
 .pss-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #e9d5ff; border-top-color: #a855f7; animation: pss-spin .7s linear infinite; }
 @keyframes pss-spin { to { transform: rotate(360deg); } }
 `),
-        onHome ? homePage : detailPage,
-        onHome ? h('div', { style: { position: 'absolute', top: 14, right: 14, zIndex: 4 } },
+        asrReady === false ? keyGate : (onHome ? homePage : detailPage),
+        onHome && asrReady !== false ? h('div', { style: { position: 'absolute', top: 14, right: 14, zIndex: 4 } },
           h('button', {
             type: 'button',
             className: 'pss-gear',
@@ -1259,6 +1309,7 @@ window.__ModuleLoader__.load({
 
         const remote = {
           saveConfig: (opts) => rpc('config/save', opts).catch(() => null),
+          configStatus: () => rpc('config/status', {}),
           preprocess: (paths) => rpc('preprocess', { paths }),
           listProjects: () => rpc('projects/list', {}).catch(() => null),
           saveProject: (opts) => rpc('projects/save', opts),

@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs'
 import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
-import { createStudio, buildToolDefinitions, preflight, preprocessForStudio, listProjects, upsertProject, deleteProject, projectVideoFile, projectSubtitles, embedSubtitle, loadUserConfig, saveUserConfig, maskKey, binaryStatus, installBinaries } from './lib/studio.js'
+import { createStudio, buildToolDefinitions, preflight, preprocessForStudio, listProjects, upsertProject, deleteProject, projectVideoFile, projectSubtitles, embedSubtitle, loadUserConfig, saveUserConfig, maskKey, hasAsrKey, binaryStatus, installBinaries } from './lib/studio.js'
 import { ASR_MODEL } from './lib/ai.js'
 import { expandEnv, expandHome } from './lib/util.js'
 
@@ -170,6 +170,7 @@ export function apply(ctx, config) {
       if (name === 'projects/list') return rpcOk(await listProjects(cfg))
       if (name === 'projects/save') return rpcOk(await upsertProject(cfg, body))
       if (name === 'projects/delete') return rpcOk(await deleteProject(cfg, body))
+      if (name === 'config/status') return rpcOk({ asr: hasAsrKey(cfg) })
       if (name === 'config/save') return rpcOk(applyConfig(cfg, body))
       if (name === 'preprocess') return rpcOk(await preprocessForStudio(studio, cfg, Array.isArray(body.paths) ? body.paths : []))
       if (name === 'check') return rpcOk(await preflight(studio))
@@ -191,7 +192,7 @@ export function apply(ctx, config) {
     const stops = []
     const register = ctx.connection?.fetch?.register
     if (typeof register === 'function') {
-      for (const name of ['projects/list', 'projects/save', 'projects/delete', 'config/save', 'preprocess', 'check', 'binaries/status', 'binaries/download', 'subtitles', 'embed', 'media/ticket']) {
+      for (const name of ['projects/list', 'projects/save', 'projects/delete', 'config/status', 'config/save', 'preprocess', 'check', 'binaries/status', 'binaries/download', 'subtitles', 'embed', 'media/ticket']) {
         try {
           stops.push(register({
             path: `/api/subtitle/${name}`,
