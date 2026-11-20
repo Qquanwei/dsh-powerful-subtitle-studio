@@ -83,6 +83,9 @@ assert.strictEqual(detectMode({ streams: [{ codec_type: 'subtitle', codec_name: 
 assert.strictEqual(isTextSubtitleCodec('mov_text'), true)
 assert.strictEqual(isImageSubtitleCodec('pgssub'), true)
 assert.strictEqual(isVideoFile('clip.MP4'), true)
+assert.strictEqual(isVideoFile('show.mkv'), true)
+assert.strictEqual(isVideoFile('clip.avi'), true)
+assert.strictEqual(isVideoFile('notes.txt'), false)
 assert.strictEqual(durationSeconds({ format: { duration: '12.5' } }), 12.5)
 assert.strictEqual(durationSeconds({ format: {} }), null)
 

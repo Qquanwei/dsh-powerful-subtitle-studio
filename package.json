@@ -1,6 +1,6 @@
 {
   "name": "powerful-subtitle-studio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "MIT",
   "description": "DeepSeek Harness plugin that turns a video into subtitles: Bailian paraformer-v2 transcription, translation by the current conversation, and SRT, soft-sub, or burned-in output.",
