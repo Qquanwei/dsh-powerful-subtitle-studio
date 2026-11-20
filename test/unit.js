@@ -5,7 +5,7 @@ import path from 'node:path'
 import { parseBailianResult, cuesFromWords, ASR_MODEL } from '../lib/ai.js'
 import { detectMode } from '../lib/pipeline.js'
 import { composeCues, parseSubtitle, serializeSrt } from '../lib/srt.js'
-import { composeSubtitle, createStudio, buildToolDefinitions, projectSubtitles, upsertProject, noteAsrCues } from '../lib/studio.js'
+import { composeSubtitle, createStudio, buildToolDefinitions, projectSubtitles, upsertProject, noteAsrCues, embedSubtitle } from '../lib/studio.js'
 import { renderOutputPath, isOutsideDirectory } from '../lib/render.js'
 import { expandEnv, expandHome, clamp, parseJson } from '../lib/util.js'
 import { durationSeconds, isVideoFile, isTextSubtitleCodec, isImageSubtitleCodec } from '../lib/media.js'
@@ -49,6 +49,13 @@ assert.strictEqual(roundTrip[0].text, '你好。')
 assert.strictEqual(roundTrip[0].color, '#7dd3fc')
 assert.strictEqual(roundTrip[1].color, '#fde68a')
 assert.ok(!serializeSrt([{ start: 0, end: 1000, text: '一个人', speaker: 0 }]).includes('<font'))
+const glued = cuesFromWords([{ start: 1, end: 1.8, text: '什么？——没什么', punctuation: '。' }])
+assert.deepStrictEqual(glued.map((cue) => [cue.text, cue.start, cue.end]), [['什么？', 1000, 1343], ['没什么。', 1343, 1800]])
+const splitLine = composeCues([{
+  start: 1000, end: 1800, text: '什么？——没什么。',
+  words: [{ start: 1000, end: 1400, text: '什么？' }, { start: 1400, end: 1800, text: '——没什么。' }],
+}], [['你来了？', '没什么。']])
+assert.deepStrictEqual(splitLine.map((cue) => [cue.start, cue.end, cue.text]), [[1000, 1400, '你来了？'], [1400, 1800, '没什么。']])
 
 const gapped = cuesFromWords([
   { start: 1, end: 1.2, text: '甲', punctuation: '' },
@@ -138,6 +145,11 @@ assert.ok(coloredSrt.includes('<font color="#fde68a">乙</font>'))
 const shown = parseSubtitle(coloredSrt)
 assert.strictEqual(shown[0].color, '#7dd3fc')
 assert.strictEqual(shown[1].text, '乙')
+
+const bare = path.join(dir, 'bare.mp4')
+await fs.writeFile(bare, 'video')
+await upsertProject(cfg, { id: 'show', videos: [video, bare] })
+await assert.rejects(() => embedSubtitle(cfg, { video: bare }), /还没有字幕/)
 
 await fs.rm(dir, { recursive: true, force: true })
 console.log('ALL UNIT TESTS PASSED')

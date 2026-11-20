@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs'
 import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
-import { createStudio, buildToolDefinitions, preflight, preprocessForStudio, listProjects, upsertProject, deleteProject, projectVideoFile, projectSubtitles, loadUserConfig, saveUserConfig, maskKey, binaryStatus, installBinaries } from './lib/studio.js'
+import { createStudio, buildToolDefinitions, preflight, preprocessForStudio, listProjects, upsertProject, deleteProject, projectVideoFile, projectSubtitles, embedSubtitle, loadUserConfig, saveUserConfig, maskKey, binaryStatus, installBinaries } from './lib/studio.js'
 import { ASR_MODEL } from './lib/ai.js'
 import { expandEnv, expandHome } from './lib/util.js'
 
@@ -176,6 +176,7 @@ export function apply(ctx, config) {
       if (name === 'binaries/status') return rpcOk(await binaryStatus(cfg))
       if (name === 'binaries/download') return rpcOk(await installBinaries(cfg))
       if (name === 'subtitles') return rpcOk(await projectSubtitles(cfg, body))
+      if (name === 'embed') return rpcOk(await embedSubtitle(cfg, body))
       if (name === 'media/ticket') {
         const auth = await mediaReady
         if (!auth) return rpcFail('media server unavailable')
@@ -190,7 +191,7 @@ export function apply(ctx, config) {
     const stops = []
     const register = ctx.connection?.fetch?.register
     if (typeof register === 'function') {
-      for (const name of ['projects/list', 'projects/save', 'projects/delete', 'config/save', 'preprocess', 'check', 'binaries/status', 'binaries/download', 'subtitles', 'media/ticket']) {
+      for (const name of ['projects/list', 'projects/save', 'projects/delete', 'config/save', 'preprocess', 'check', 'binaries/status', 'binaries/download', 'subtitles', 'embed', 'media/ticket']) {
         try {
           stops.push(register({
             path: `/api/subtitle/${name}`,

@@ -54,6 +54,11 @@ window.__ModuleLoader__.load({
       'render.burn': '烧录进视频 MP4（重编码）',
       'btn.process': '一键处理',
       'btn.working': '处理中…',
+      'btn.embed': '渲染到视频里',
+      'btn.embedding': '正在嵌入…',
+      'embed.working': '正在把字幕嵌进视频。',
+      'embed.done': '已生成带内嵌字幕的视频：',
+      'embed.failed': '嵌入失败：',
       'hint.working': '正在准备这一集，准备好就发给会话',
       'hint.send': '已交给会话处理这一集。',
       'run.running': '会话处理中',
@@ -136,6 +141,11 @@ window.__ModuleLoader__.load({
       'render.burn': 'Burn into MP4 (re-encode)',
       'btn.process': 'Process',
       'btn.working': 'Working…',
+      'btn.embed': 'Render into video',
+      'btn.embedding': 'Embedding…',
+      'embed.working': 'Embedding subtitles into the video.',
+      'embed.done': 'Video with embedded subtitles: ',
+      'embed.failed': 'Embed failed: ',
       'hint.working': 'Preparing this episode, then sending it to the conversation.',
       'hint.send': 'This episode was sent to the conversation.',
       'run.running': 'Conversation running',
@@ -383,6 +393,7 @@ window.__ModuleLoader__.load({
       const [renderMode, setRenderMode] = useState('srt')
       const [notice, setNotice] = useState(null)
       const [busy, setBusy] = useState(false)
+      const [embedding, setEmbedding] = useState(false)
       const [configKey, setConfigKey] = useState('')
       const [showSettings, setShowSettings] = useState(false)
       const [projects, setProjects] = useState([])
@@ -428,6 +439,7 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         const video = currentProject?.videos?.[videoIndex]
         if (!video) { setCues([]); setSubFile(''); return }
+        setSubFile('')
         let alive = true
         Promise.resolve(remote?.subtitles?.({ video }) ?? null)
           .then((res) => {
@@ -617,6 +629,24 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const embedVideo = async () => {
+        if (!subFile || embedding) return
+        const episode = (currentProject?.videos ?? [])[videoIndex] || ''
+        if (!episode) return
+        setEmbedding(true)
+        setNotice({ tone: 'info', text: t('embed.working') })
+        try {
+          const res = await remote?.embed?.({ video: episode })
+          if (!res?.output) throw new Error(t('embed.failed'))
+          setNotice({ tone: 'success', text: t('embed.done') + res.output })
+        } catch (err) {
+          const msg = err?.message || String(err)
+          setNotice({ tone: 'error', text: msg.startsWith(t('embed.failed')) ? msg : t('embed.failed') + msg })
+        } finally {
+          setEmbedding(false)
+        }
+      }
+
       const process = async () => {
         if (busy || downloading || sessionRun === true) return
         setNotice(null)
@@ -654,7 +684,7 @@ window.__ModuleLoader__.load({
             `${mode === 'asr' ? '按语音转写后再翻译。' : mode === 'translate' ? '只翻译已有字幕，不要转写。' : ''}\n` +
             `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕，不同 speaker 不要并成一条。不要检查静音点，不要把音频切成更短的片段再转写。\n` +
             `2) 你自己直接翻译成 ${targetLang}。不要写 Python 或任何生成脚本，也不要手写 SRT 时间轴。\n` +
-            `3) 调用 subtitle_compose：video 用上面的视频路径，cues 用刚才返回的 cues，texts 是按序号对齐的译文（双语时 texts 里只放译文）。条数必须一致，否则工具会报错。改某一句时再调用一次，只传 lines 里有改动的序号。\n` +
+            `3) 调用 subtitle_compose：video 用上面的视频路径，cues 用刚才返回的 cues，texts 是按序号对齐的译文（双语时 texts 里只放译文）。外层条数必须一致。同一条里如果是两个人的话混在一起，把这一项写成字符串数组拆开，例如 ["你来了？", "嗯。"]，时间由工具按词级时间切开，不要自己写时间轴。改某一句时再调用一次，只传 lines 里有改动的序号。\n` +
             `4) ${output}\n` +
             `完成后报告字幕文件路径。`
 
@@ -947,6 +977,7 @@ window.__ModuleLoader__.load({
               ? h('div', { style: { flexShrink: 0, fontSize: 12, fontWeight: 650, color: '#047857' } }, t('run.idle'))
               : null,
           h(Button, { onClick: jumpToSession }, t('session.open')),
+          h(Button, { disabled: !subFile || embedding || bins?.ok === false, onClick: embedVideo }, embedding ? t('btn.embedding') : t('btn.embed')),
           h(Button, { primary: true, disabled: busy || sessionRun === true || downloading || bins?.ok === false, onClick: process }, (busy || sessionRun === true) ? t('btn.working') : t('btn.process')),
         ),
         h('div', { style: { ...card, padding: 12 } }, options),
@@ -1224,6 +1255,7 @@ window.__ModuleLoader__.load({
           binaryStatus: () => rpc('binaries/status', {}),
           downloadBinaries: () => rpc('binaries/download', {}),
           subtitles: (opts) => rpc('subtitles', opts),
+          embed: (opts) => rpc('embed', opts),
           mediaTicket: () => rpc('media/ticket', {}),
         }
 
