@@ -4,10 +4,18 @@
   "type": "module",
   "license": "MIT",
   "description": "DeepSeek Harness plugin that turns a video into subtitles: Bailian paraformer-v2 transcription, translation by the current conversation, and SRT, soft-sub, or burned-in output.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "subtitle"
+  ],
   "main": "index.js",
+  "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
@@ -18,9 +26,21 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
+    "docs/screenshot.png",
     "README.md",
     "LICENSE"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Qquanwei/dsh-powerful-subtitle-studio.git"
+  },
+  "homepage": "https://github.com/Qquanwei/dsh-powerful-subtitle-studio#readme",
+  "bugs": {
+    "url": "https://github.com/Qquanwei/dsh-powerful-subtitle-studio/issues"
+  },
+  "engines": {
+    "dsh": ">=0.2.0 <0.3.0"
+  },
   "scripts": {
     "test": "node test/unit.js && node test/smoke.js"
   },

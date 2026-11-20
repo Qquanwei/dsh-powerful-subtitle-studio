@@ -56,6 +56,15 @@ const splitLine = composeCues([{
   words: [{ start: 1000, end: 1400, text: '什么？' }, { start: 1400, end: 1800, text: '——没什么。' }],
 }], [['你来了？', '没什么。']])
 assert.deepStrictEqual(splitLine.map((cue) => [cue.start, cue.end, cue.text]), [[1000, 1400, '你来了？'], [1400, 1800, '没什么。']])
+const emphasized = composeCues([{ start: 0, end: 1000, text: 'hi' }], ['这是**重点**。'])
+assert.strictEqual(emphasized[0].text, '这是<b>重点</b>。')
+assert.strictEqual(parseSubtitle(serializeSrt(emphasized))[0].text, '这是<b>重点</b>。')
+const coloredBold = serializeSrt([
+  { start: 0, end: 1000, text: '这是<b>重点</b>。', speaker: 0 },
+  { start: 1000, end: 2000, text: '普通', speaker: 1 },
+])
+assert.ok(coloredBold.includes('<font color="#7dd3fc">这是<b>重点</b>。</font>'))
+assert.strictEqual(parseSubtitle(coloredBold)[0].text, '这是<b>重点</b>。')
 
 const gapped = cuesFromWords([
   { start: 1, end: 1.2, text: '甲', punctuation: '' },

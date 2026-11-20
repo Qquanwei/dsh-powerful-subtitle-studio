@@ -23,6 +23,17 @@ window.__ModuleLoader__.load({
       return hour ? `${hour}:${pad(min)}:${pad(sec)}.${pad(cs)}` : `${pad(min)}:${pad(sec)}.${pad(cs)}`
     }
     const SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    const richText = (text) => {
+      const nodes = []
+      let bold = false
+      String(text ?? '').split(/(<\/?b>)/i).forEach((part, index) => {
+        if (/^<b>$/i.test(part)) { bold = true; return }
+        if (/^<\/b>$/i.test(part)) { bold = false; return }
+        if (!part) return
+        nodes.push(bold ? h('b', { key: index }, part) : part)
+      })
+      return nodes
+    }
     const VIDEO_STYLE = { width: '100%', height: '100%', objectFit: 'contain', background: '#0b0b0b' }
 
     const zh = {
@@ -683,7 +694,7 @@ window.__ModuleLoader__.load({
             `${visualCheck === 'off' ? '不要抽帧。' : visualCheck === 'all' ? '翻译前对每句用 subtitle_frames 截取对应时间的画面，你自己看图核对说话人和画面文字。' : '人名或听写不确定时，用 subtitle_frames 抽几帧，你自己看图核对。'}` +
             `${mode === 'asr' ? '按语音转写后再翻译。' : mode === 'translate' ? '只翻译已有字幕，不要转写。' : ''}\n` +
             `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕，不同 speaker 不要并成一条。不要检查静音点，不要把音频切成更短的片段再转写。\n` +
-            `2) 你自己直接翻译成 ${targetLang}。不要写 Python 或任何生成脚本，也不要手写 SRT 时间轴。\n` +
+            `2) 你自己直接翻译成 ${targetLang}。一句里真正的重点用 <b> 包住，例如 这是<b>重点</b>，不要整句加粗。不要写 Python 或任何生成脚本，也不要手写 SRT 时间轴。\n` +
             `3) 调用 subtitle_compose：video 用上面的视频路径，cues 用刚才返回的 cues，texts 是按序号对齐的译文（双语时 texts 里只放译文）。外层条数必须一致。同一条里如果是两个人的话混在一起，把这一项写成字符串数组拆开，例如 ["你来了？", "嗯。"]，时间由工具按词级时间切开，不要自己写时间轴。改某一句时再调用一次，只传 lines 里有改动的序号。\n` +
             `4) ${output}\n` +
             `完成后报告字幕文件路径。`
@@ -1012,7 +1023,7 @@ window.__ModuleLoader__.load({
                     display: 'inline-block', maxWidth: '100%', background: 'rgba(0,0,0,0.82)', color: cues[activeCue].color || '#ffffff',
                     borderRadius: 4, padding: '6px 12px', fontSize: 16, lineHeight: 1.45, whiteSpace: 'pre-wrap',
                   },
-                }, cues[activeCue].text))
+                }, richText(cues[activeCue].text)))
                 : null,
               videoError
                 ? h('div', {
@@ -1081,7 +1092,7 @@ window.__ModuleLoader__.load({
                     cue.color ? h('span', { style: { width: 8, height: 8, borderRadius: 99, background: cue.color, flexShrink: 0 } }) : null,
                     clock(cue.start) + '  ' + clock(cue.end),
                   ),
-                  h('div', { style: { marginTop: 4, fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap' } }, cue.text),
+                  h('div', { style: { marginTop: 4, fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap' } }, richText(cue.text)),
                 )),
             ),
           ),
