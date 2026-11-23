@@ -3,10 +3,10 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parseBailianResult, cuesFromWords, ASR_MODEL } from '../lib/ai.js'
-import { detectMode } from '../lib/pipeline.js'
+import { detectMode, planAudioChunks } from '../lib/pipeline.js'
 import { composeCues, parseSubtitle, serializeSrt } from '../lib/srt.js'
 import { composeSubtitle, createStudio, buildToolDefinitions, projectSubtitles, upsertProject, noteAsrCues, embedSubtitle, hasAsrKey } from '../lib/studio.js'
-import { renderOutputPath, isOutsideDirectory } from '../lib/render.js'
+import { renderOutputPath, isOutsideDirectory, commonParentDirectory } from '../lib/render.js'
 import { expandEnv, expandHome, clamp, parseJson } from '../lib/util.js'
 import { durationSeconds, isVideoFile, isTextSubtitleCodec, isImageSubtitleCodec } from '../lib/media.js'
 
@@ -76,6 +76,15 @@ const overSeven = []
 for (let i = 0; i < 16; i++) overSeven.push({ start: i * 0.5, end: i * 0.5 + 0.4, text: '啊', punctuation: '' })
 assert.ok(cuesFromWords(overSeven).every((c) => c.end - c.start <= 7000))
 
+assert.deepStrictEqual(planAudioChunks(120, []), [{ start: 0, end: 120 }])
+const even = planAudioChunks(7200, [])
+assert.strictEqual(even.length, 12)
+assert.strictEqual(even[0].start, 0)
+assert.strictEqual(even[11].end, 7200)
+assert.ok(even.every((c, i) => i === 0 || c.start === even[i - 1].end))
+const quiet = planAudioChunks(1300, [{ start: 575, end: 585 }])
+assert.strictEqual(quiet.length, 3)
+assert.ok(quiet[0].end > 575 && quiet[0].end < 585)
 assert.strictEqual(detectMode({ streams: [] }, []), 'asr')
 assert.strictEqual(detectMode({ streams: [] }, ['/show/ep.srt']), 'translate')
 assert.strictEqual(detectMode({ streams: [{ codec_type: 'subtitle', codec_name: 'ass' }] }, []), 'translate')
@@ -101,6 +110,10 @@ assert.deepStrictEqual(parseJson('```json\n{"ok":true}\n```'), { ok: true })
 assert.strictEqual(renderOutputPath('/tmp/alien.mp4', 'mkv-soft'), path.join('/tmp', 'alien.subbed.mkv'))
 assert.strictEqual(renderOutputPath('/tmp/alien.mp4', 'mp4-burn'), path.join('/tmp', 'alien.subbed.mp4'))
 assert.strictEqual(isOutsideDirectory('/work/anime', '/work/anime-extra/a.srt'), true)
+assert.strictEqual(commonParentDirectory(['/shows/frieren/ep1.mkv']), '/shows/frieren')
+assert.strictEqual(commonParentDirectory(['/shows/frieren/s1/ep1.mkv', '/shows/frieren/s2/ep2.mkv']), '/shows/frieren')
+assert.strictEqual(commonParentDirectory(['C:\\Shows\\ep1.mkv', 'C:\\Shows\\ep2.mkv']), 'C:\\Shows')
+assert.strictEqual(commonParentDirectory([]), '')
 
 const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pss-unit-'))
 await fs.writeFile(path.join(dir, 'config.json'), JSON.stringify({ asr: { model: 'sensevoice-v1', apiKey: 'sk-test' } }))

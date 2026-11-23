@@ -13,6 +13,30 @@ window.__ModuleLoader__.load({
     const NS = 'powerfulSubtitleStudio'
     const PANEL_ID = 'powerful-subtitle-studio'
     const pathParts = (p) => String(p).split(/[/\\]/).filter(Boolean)
+    const commonParentDirectory = (paths) => {
+      const dirs = []
+      for (const raw of paths ?? []) {
+        const text = String(raw ?? '')
+        const idx = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'))
+        if (idx > 0) dirs.push(text.slice(0, idx))
+        else if (idx === 0) dirs.push(text.slice(0, 1))
+      }
+      if (!dirs.length) return ''
+      const sep = dirs[0].includes('\\') && !dirs[0].includes('/') ? '\\' : '/'
+      let parts = dirs[0].split(/[/\\]/)
+      for (const dir of dirs.slice(1)) {
+        const next = dir.split(/[/\\]/)
+        let i = 0
+        const limit = Math.min(parts.length, next.length)
+        while (i < limit && parts[i].toLowerCase() === next[i].toLowerCase()) i++
+        parts = parts.slice(0, i)
+      }
+      if (sep === '/') {
+        const body = parts.filter(Boolean).join('/')
+        return body ? `/${body}` : '/'
+      }
+      return parts.join('\\')
+    }
     const clock = (ms) => {
       const n = Math.max(0, Math.round(Number(ms) || 0))
       const cs = Math.floor(n / 10) % 100
@@ -681,7 +705,8 @@ window.__ModuleLoader__.load({
         const name = deriveProjectName(resolved) || t('project.untitled')
         setNotice(null)
         let sessionId = ''
-        try { sessionId = await createNamedSession(name) } catch { /* 会话可以进详情后再建 */ }
+        const directory = commonParentDirectory(resolved.map((it) => it.path))
+        try { sessionId = await createNamedSession(name, directory) } catch { /* 会话可以进详情后再建 */ }
         try {
           const videos = resolved.map((it) => it.path)
           const res = await remote.saveProject({ id: name, name, videos, ...(sessionId ? { sessionId } : {}) })
@@ -714,12 +739,12 @@ window.__ModuleLoader__.load({
           return id
         }
         try {
-          if (!sid) sid = await remember(await createNamedSession(currentProject?.name || t('project.untitled')))
+          if (!sid) sid = await remember(await createNamedSession(currentProject?.name || t('project.untitled'), commonParentDirectory(currentProject?.videos ?? [])))
           return await deliver(sid)
         } catch (err) {
           const msg = err?.message || String(err)
           if (!/unknown session/.test(msg)) throw err
-          sid = await remember(await createNamedSession(currentProject?.name || t('project.untitled')))
+          sid = await remember(await createNamedSession(currentProject?.name || t('project.untitled'), commonParentDirectory(currentProject?.videos ?? [])))
           return deliver(sid)
         }
       }
@@ -729,7 +754,7 @@ window.__ModuleLoader__.load({
         try {
           let sid = currentProject?.sessionId
           if (!sid) {
-            sid = await createNamedSession(currentProject?.name || t('project.untitled'))
+            sid = await createNamedSession(currentProject?.name || t('project.untitled'), commonParentDirectory(currentProject?.videos ?? []))
             const res = await (remote?.saveProject?.({ id: currentProject?.id, sessionId: sid }) ?? null)
             if (res?.project) { setCurrentProject(res.project); rememberProject(res.project); sid = res.project.sessionId || sid }
           }
@@ -792,7 +817,7 @@ window.__ModuleLoader__.load({
             `${bilingual ? '字幕做成双语（原文在上，译文在下）。' : '字幕只保留译文。'}` +
             `${visualCheck === 'off' ? '不要抽帧。' : visualCheck === 'all' ? '翻译前对每句用 subtitle_frames 截取对应时间的画面，你自己看图核对说话人和画面文字。' : '人名或听写不确定时，用 subtitle_frames 抽几帧，你自己看图核对。'}` +
             `${mode === 'asr' ? '按语音转写后再翻译。' : mode === 'translate' ? '只翻译已有字幕，不要转写。' : ''}\n` +
-            `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕，不同 speaker 不要并成一条。不要检查静音点，不要把音频切成更短的片段再转写。\n` +
+            `1) 对这个音频只调用一次 subtitle_transcribe（不要传 language，源语言自动识别）。返回的 cues 已经按词级时间戳切成短字幕，不同 speaker 不要并成一条。不要检查静音点，不要自己把音频切成更短的片段再转写；很长的音频由工具内部分段识别并接回同一条时间轴。\n` +
             `2) 你自己直接翻译成 ${targetLang}。一句里真正的重点用 <b> 包住，例如 这是<b>重点</b>，不要整句加粗。不要写 Python 或任何生成脚本，也不要手写 SRT 时间轴。\n` +
             `3) 调用 subtitle_compose：video 用上面的视频路径，cues 用刚才返回的 cues，texts 是按序号对齐的译文（双语时 texts 里只放译文）。外层条数必须一致。同一条里如果是两个人的话混在一起，把这一项写成字符串数组拆开，例如 ["你来了？", "嗯。"]，时间由工具按词级时间切开，不要自己写时间轴。改某一句时再调用一次，只传 lines 里有改动的序号。\n` +
             `4) ${output}\n` +
@@ -1352,10 +1377,25 @@ window.__ModuleLoader__.load({
           throw new Error('还没有工作区。先在 DeepSeek Harness 里打开一个文件夹，然后再点一键处理。')
         }
 
-        // 每个项目单独 sessions.create。connectWorkspace 会复用工作区里那条空白会话，
-        // 多个项目会写进同一条对话，会话列表里也对不上项目。
-        const createNamedSession = async (name) => {
-          const wsId = await ensureSubtitleWorkspace()
+        const workspaceIdFrom = (result) => {
+          if (typeof result === 'string') return result
+          const ws = result?.workspace ?? result
+          return ws?.workspaceId || ws?.id || ''
+        }
+
+        // 把视频所在目录登记成工作区。create 对已有目录是幂等的，不会另建一份。
+        const workspaceForDirectory = async (dir) => {
+          if (!dir || typeof ctx.workspaces?.create !== 'function') return ''
+          return workspaceIdFrom(await ctx.workspaces.create({ path: dir }))
+        }
+
+        // 每个项目单独 sessions.create。工作区优先用视频目录，这样字幕写在视频旁边仍在会话工作区内。
+        const createNamedSession = async (name, directory) => {
+          let wsId = ''
+          if (directory) {
+            try { wsId = await workspaceForDirectory(directory) } catch { wsId = '' }
+          }
+          if (!wsId) wsId = await ensureSubtitleWorkspace()
           if (!wsId) throw new Error('没有可用的工作区，会话建不出来')
           const sid = await ctx.sessions.create({ workspaceId: wsId })
           if (name && typeof ctx.sessions.using === 'function') {
