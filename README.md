@@ -17,6 +17,10 @@ DeepSeek Harness 插件。把一集视频做成字幕：抽出音频，用阿里
 
 需要已经装好 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 桌面版 0.2。
 
+在桌面版里打开「浏览插件」，点「添加插件」，填入 `powerful-subtitle-studio` 即可安装。
+
+也可以用命令：
+
 ```sh
 dsh plugin --profile desktop add powerful-subtitle-studio
 ```
