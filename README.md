@@ -2,7 +2,7 @@
 
 DeepSeek Harness 插件。把一集视频做成字幕：抽出音频，用阿里云百炼 paraformer-v2 转写，由当前会话里的模型翻译，再写成 SRT、内挂软字幕或烧录视频。同一项目的后续剧集会发到同一条会话。
 
-![字幕工作室详情页](docs/screenshot.png)
+[![字幕工作室演示视频](https://img.youtube.com/vi/vZGG6eqynzw/maxresdefault.jpg)](https://www.youtube.com/watch?v=vZGG6eqynzw)
 
 ## 特色功能
 
